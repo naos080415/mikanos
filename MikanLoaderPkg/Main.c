@@ -1,4 +1,15 @@
 #include  <Uefi.h>
+#include  <Library/UefiLib.h>
+#include  <Library/UefiBootServicesTableLib.h>
+#include  <Library/UefiRuntimeServicesTableLib.h>
+#include  <Library/PrintLib.h>
+#include  <Library/MemoryAllocationLib.h>
+#include  <Library/BaseMemoryLib.h>
+#include  <Protocol/LoadedImage.h>
+#include  <Protocol/SimpleFileSystem.h>
+#include  <Protocol/DiskIo2.h>
+#include  <Protocol/BlockIo.h>
+#include  <Guid/FileInfo.h>
 
 // メモリディスクリプタを書き込むためのバッファ全体のサイズ
 // GetMemoryMap()で取得したディスクリプタサイズなどを記録できる
@@ -32,6 +43,23 @@ const CHAR16* GetMemoryTypeUnicode(EFI_MEMORY_TYPE type) {
     case EfiPersistentMemory: return L"EfiPersistentMemory";
     case EfiMaxMemoryType: return L"EfiMaxMemoryType";
     default: return L"InvalidMemoryType";
+  }
+}
+
+const CHAR16* GetPixelFormatUnicode(EFI_GRAPHICS_PIXEL_FORMAT fmt) {
+  switch (fmt) {
+    case PixelRedGreenBlueReserved8BitPerColor:
+      return L"PixelRedGreenBlueReserved8BitPerColor";
+    case PixelBlueGreenRedReserved8BitPerColor:
+      return L"PixelBlueGreenRedReserved8BitPerColor";
+    case PixelBitMask:
+      return L"PixelBitMask";
+    case PixelBltOnly:
+      return L"PixelBltOnly";
+    case PixelFormatMax:
+      return L"PixelFormatMax";
+    default:
+      return L"InvalidPixelFormat";
   }
 }
 
@@ -114,6 +142,38 @@ EFI_STATUS SaveMemoryMap(struct MemoryMap* map, EFI_FILE_PROTOCOL* file)
     return EFI_SUCCESS;
 }
 
+EFI_STATUS OpenGOP(EFI_HANDLE image_handle,
+                   EFI_GRAPHICS_OUTPUT_PROTOCOL** gop) {
+  EFI_STATUS status;
+  UINTN num_gop_handles = 0;
+  EFI_HANDLE* gop_handles = NULL;
+
+  status = gBS->LocateHandleBuffer(
+      ByProtocol,
+      &gEfiGraphicsOutputProtocolGuid,
+      NULL,
+      &num_gop_handles,
+      &gop_handles);
+  if (EFI_ERROR(status)) {
+    return status;
+  }
+
+  status = gBS->OpenProtocol(
+      gop_handles[0],
+      &gEfiGraphicsOutputProtocolGuid,
+      (VOID**)gop,
+      image_handle,
+      NULL,
+      EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+  if (EFI_ERROR(status)) {
+    return status;
+  }
+
+  gBS->FreePool(gop_handles);
+
+  return EFI_SUCCESS;
+}
+
 EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle,
                            EFI_SYSTEM_TABLE *system_table) 
 {
@@ -157,8 +217,8 @@ EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle,
     gBS->AllocatePages(
         AllocateAddress, EfiLoaderData,
         (kernel_file_size + 0xfff) / 0x1000, &kernel_base_addr);
-    kernel_file->Read(kernal_file, &kernel_file_size, (VOID*)kernal_base_addr);
-    Print(L"Kernel: 0x%0lx (%lu bytes)\n", kernel_base_addr, kernal_file_size);
+    kernel_file->Read(kernel_file, &kernel_file_size, (VOID*)kernel_base_addr);
+    Print(L"Kernel: 0x%0lx (%lu bytes)\n", kernel_base_addr, kernel_file_size);
 
     // ブートサービスを停止させる
     EFI_STATUS status;
@@ -171,14 +231,32 @@ EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle,
         }
     }
 
-    // カーネルの起動
-    UINT64 entry_addr = *(UINT64*)(kernal_base_addr + 24);
+    // カーネルの起動 : エントリーポイントを計算し,読み出す。
+    UINT64 entry_addr = *(UINT64*)(kernel_base_addr + 24);      // ELFのヘッダー情報が24ビット
 
     typedef void EntryPointType(void);
     EntryPointType* entry_point = (EntryPointType*)entry_addr;
-    entry_point();
 
+    // ブートローダからピクセルを描く
+    EFI_GRAPHICS_OUTPUT_PROTOCOL* gop;
+    OpenGOP(image_handle, &gop);
+    Print(L"Resolution: %ux%u, Pixel Format: %s, %u pixels/line\n",
+        gop->Mode->Info->HorizontalResolution,
+        gop->Mode->Info->VerticalResolution,
+        GetPixelFormatUnicode(gop->Mode->Info->PixelFormat),
+        gop->Mode->Info->PixelsPerScanLine);
+    Print(L"Frame Buffer: 0x%0lx - 0x%0lx, Size: %lu bytes\n",
+        gop->Mode->FrameBufferBase,
+        gop->Mode->FrameBufferBase + gop->Mode->FrameBufferSize,
+        gop->Mode->FrameBufferSize);
     
+    UINT8* frame_buffer = (UINT8*)gop->Mode->FrameBufferBase;
+    for(UINTN i = 0;i < gop->Mode->FrameBufferSize; ++i){
+        frame_buffer[i] = 255;
+    }
+
+    entry_point();      // kernelの起動
+
     while(1);
 
     return EFI_SUCCESS;
