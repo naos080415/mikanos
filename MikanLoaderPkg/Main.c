@@ -136,6 +136,30 @@ EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle,
     SaveMemoryMap(&memmap, memmap_file);
     memmap_file->Close(memmap_file);
 
+    // カーネルを読み込む
+    EFI_FILE_PROTOCOL* kernel_file;
+    root_dir->Open(
+        root_dir, &kernel_file, L"\\kernel.elf",
+        EFI_FILE_MODE_READ, 0);
+    
+    UINTN file_info_size = sizeof(EFI_FILE_INFO) + sizeof(CHAR16) * 12;     // sizeof(CHAR16) * 12 : FileName用のデータ幅
+    UINT8 file_info_buffer[file_info_size];
+    kernel_file->GetInfo(
+        kernel_file, &gEfiFileInfoGuid,
+        &file_info_size, file_info_buffer);
+    
+    EFI_FILE_INFO* file_info = (EFI_FILE_INFO*)file_info_buffer;
+    UINTN kernel_file_size = file_info->FileSize;
+
+    EFI_PHYSICAL_ADDRESS kernel_base_addr = 0x100000;
+
+    // ページ数の計算式 : (kernel_file_size + 0xfff) / 0x1000 
+    gBS->AllocatePages(
+        AllocateAddress, EfiLoaderData,
+        (kernel_file_size + 0xfff) / 0x1000, &kernel_base_addr);
+    kernel_file->Read(kernal_file, &kernel_file_size, (VOID*)kernal_base_addr);
+    Print(L"Kernel: 0x%0lx (%lu bytes)\n", kernel_base_addr, kernal_file_size);
+
     while(1);
 
     return EFI_SUCCESS;
