@@ -24,7 +24,8 @@ struct MemoryMap
     UINT32 descriptor_version;
 };
 
-const CHAR16* GetMemoryTypeUnicode(EFI_MEMORY_TYPE type) {
+const CHAR16* GetMemoryTypeUnicode(EFI_MEMORY_TYPE type) 
+{
   switch (type) {
     case EfiReservedMemoryType: return L"EfiReservedMemoryType";
     case EfiLoaderCode: return L"EfiLoaderCode";
@@ -46,7 +47,8 @@ const CHAR16* GetMemoryTypeUnicode(EFI_MEMORY_TYPE type) {
   }
 }
 
-const CHAR16* GetPixelFormatUnicode(EFI_GRAPHICS_PIXEL_FORMAT fmt) {
+const CHAR16* GetPixelFormatUnicode(EFI_GRAPHICS_PIXEL_FORMAT fmt) 
+{
   switch (fmt) {
     case PixelRedGreenBlueReserved8BitPerColor:
       return L"PixelRedGreenBlueReserved8BitPerColor";
@@ -63,7 +65,12 @@ const CHAR16* GetPixelFormatUnicode(EFI_GRAPHICS_PIXEL_FORMAT fmt) {
   }
 }
 
-EFI_STATUS OpenRootDir(EFI_HANDLE image_handle, EFI_FILE_PROTOCOL** root) {
+void Halt(void) {
+    while(1) __asm__("hlt");
+}
+
+EFI_STATUS OpenRootDir(EFI_HANDLE image_handle, EFI_FILE_PROTOCOL** root) 
+{
   EFI_STATUS status;
   EFI_LOADED_IMAGE_PROTOCOL* loaded_image;
   EFI_SIMPLE_FILE_SYSTEM_PROTOCOL* fs;
@@ -143,7 +150,8 @@ EFI_STATUS SaveMemoryMap(struct MemoryMap* map, EFI_FILE_PROTOCOL* file)
 }
 
 EFI_STATUS OpenGOP(EFI_HANDLE image_handle,
-                   EFI_GRAPHICS_OUTPUT_PROTOCOL** gop) {
+                   EFI_GRAPHICS_OUTPUT_PROTOCOL** gop)
+{
   EFI_STATUS status;
   UINTN num_gop_handles = 0;
   EFI_HANDLE* gop_handles = NULL;
@@ -230,12 +238,19 @@ EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle,
     EFI_FILE_INFO* file_info = (EFI_FILE_INFO*)file_info_buffer;
     UINTN kernel_file_size = file_info->FileSize;
 
-    EFI_PHYSICAL_ADDRESS kernel_base_addr = 0x100000;
 
     // ページ数の計算式 : (kernel_file_size + 0xfff) / 0x1000 
-    gBS->AllocatePages(
+    EFI_STATUS status_Kenel;
+    EFI_PHYSICAL_ADDRESS kernel_base_addr = 0x100000;
+
+    status_Kenel = gBS->AllocatePages(
         AllocateAddress, EfiLoaderData,
         (kernel_file_size + 0xfff) / 0x1000, &kernel_base_addr);
+    if(EFI_ERROR(status_Kenel)){
+        Print(L"failed to allocate Pages: %r",status_Kenel);
+        Halt();
+    }
+
     kernel_file->Read(kernel_file, &kernel_file_size, (VOID*)kernel_base_addr);
     Print(L"Kernel: 0x%0lx (%lu bytes)\n", kernel_base_addr, kernel_file_size);
 
@@ -254,7 +269,7 @@ EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle,
             Print(L"Could not exit boot service: %r\n", status);
             while (1);
         }
-  }
+    }
 
     // カーネルの起動 : エントリーポイントを計算し,読み出す。
     UINT64 entry_addr = *(UINT64*)(kernel_base_addr + 24);      // ELFのヘッダー情報が24ビット
@@ -263,7 +278,6 @@ EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle,
     typedef void EntryPointType(UINT64, UINT64);
 
     EntryPointType* entry_point = (EntryPointType*)entry_addr;
-
 
     // フレームバッファの情報をカーネルにわたす
     // entry_point();
