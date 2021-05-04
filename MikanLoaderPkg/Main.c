@@ -196,6 +196,25 @@ EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle,
     SaveMemoryMap(&memmap, memmap_file);
     memmap_file->Close(memmap_file);
 
+    // ブートローダからピクセルを描く 　
+    EFI_GRAPHICS_OUTPUT_PROTOCOL* gop;
+    OpenGOP(image_handle, &gop);
+
+    Print(L"Resolution: %ux%u, Pixel Format: %s, %u pixels/line\n",
+        gop->Mode->Info->HorizontalResolution,
+        gop->Mode->Info->VerticalResolution,
+        GetPixelFormatUnicode(gop->Mode->Info->PixelFormat),
+        gop->Mode->Info->PixelsPerScanLine);
+    Print(L"Frame Buffer: 0x%0lx - 0x%0lx, Size: %lu bytes\n",
+        gop->Mode->FrameBufferBase,
+        gop->Mode->FrameBufferBase + gop->Mode->FrameBufferSize,
+        gop->Mode->FrameBufferSize);
+    
+    UINT8* frame_buffer = (UINT8*)gop->Mode->FrameBufferBase;
+    for(UINTN i = 0;i < gop->Mode->FrameBufferSize; ++i){
+            frame_buffer[i] = 255;
+    }
+
     // カーネルを読み込む
     EFI_FILE_PROTOCOL* kernel_file;
     root_dir->Open(
@@ -223,39 +242,34 @@ EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle,
     // ブートサービスを停止させる
     EFI_STATUS status;
     status = gBS->ExitBootServices(image_handle, memmap.map_key);
-    if(EFI_ERROR(status)){
+    if (EFI_ERROR(status)) {
         status = GetMemoryMap(&memmap);
-        if(EFI_ERROR(status)){
-            Print(L"Could not exit boot service: %r\n", status);
-            while(1);
+        if (EFI_ERROR(status)) {
+            Print(L"failed to get memory map: %r\n", status);
+            while (1);
         }
-    }
+
+        status = gBS->ExitBootServices(image_handle, memmap.map_key);
+        if (EFI_ERROR(status)) {
+            Print(L"Could not exit boot service: %r\n", status);
+            while (1);
+        }
+  }
 
     // カーネルの起動 : エントリーポイントを計算し,読み出す。
     UINT64 entry_addr = *(UINT64*)(kernel_base_addr + 24);      // ELFのヘッダー情報が24ビット
 
-    typedef void EntryPointType(void);
+    // typedef void EntryPointType(void);
+    typedef void EntryPointType(UINT64, UINT64);
+
     EntryPointType* entry_point = (EntryPointType*)entry_addr;
 
-    // ブートローダからピクセルを描く
-    EFI_GRAPHICS_OUTPUT_PROTOCOL* gop;
-    OpenGOP(image_handle, &gop);
-    Print(L"Resolution: %ux%u, Pixel Format: %s, %u pixels/line\n",
-        gop->Mode->Info->HorizontalResolution,
-        gop->Mode->Info->VerticalResolution,
-        GetPixelFormatUnicode(gop->Mode->Info->PixelFormat),
-        gop->Mode->Info->PixelsPerScanLine);
-    Print(L"Frame Buffer: 0x%0lx - 0x%0lx, Size: %lu bytes\n",
-        gop->Mode->FrameBufferBase,
-        gop->Mode->FrameBufferBase + gop->Mode->FrameBufferSize,
-        gop->Mode->FrameBufferSize);
-    
-    UINT8* frame_buffer = (UINT8*)gop->Mode->FrameBufferBase;
-    for(UINTN i = 0;i < gop->Mode->FrameBufferSize; ++i){
-        frame_buffer[i] = 255;
-    }
 
-    entry_point();      // kernelの起動
+    // フレームバッファの情報をカーネルにわたす
+    // entry_point();
+    entry_point(gop->Mode->FrameBufferBase, gop->Mode->FrameBufferSize);
+    
+    Print(L"All done\n");
 
     while(1);
 
