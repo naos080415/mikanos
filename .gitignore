@@ -1,1 +1,4 @@
 .*.un~
+*.o
+*.d
+/kernel/kernel.elf

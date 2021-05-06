@@ -302,7 +302,6 @@ EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle,
         Halt();
     }
 
-
     // カーネルファイルの読み込み(一時的なメモリ領域を確保し,読み込む)
     EFI_FILE_INFO* file_info = (EFI_FILE_INFO*)file_info_buffer;
     UINTN kernel_file_size = file_info->FileSize;
