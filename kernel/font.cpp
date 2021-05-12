@@ -1,6 +1,5 @@
 #include "font.hpp"
 
-
 extern const uint8_t _binary_hankaku_bin_start;
 extern const uint8_t _binary_hankaku_bin_end;
 extern const uint8_t _binary_hankaku_bin_size;
@@ -11,7 +10,7 @@ const uint8_t* GetFont(char c)
 
     if(index >= reinterpret_cast<uintptr_t>(&_binary_hankaku_bin_size))
         return nullptr;
-    
+
     return &_binary_hankaku_bin_start + index;
 }
 
